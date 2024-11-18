@@ -1,0 +1,122 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sb
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn import metrics
+from sklearn.svm import SVC
+from xgboost import XGBRegressor
+from sklearn.linear_model import LinearRegression, Lasso, Ridge
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error as mae
+import holidays
+import calendar
+from datetime import datetime
+
+# Suppress warnings for cleaner output
+import warnings
+warnings.filterwarnings('ignore')
+
+# Load the dataset
+df = pd.read_csv('ola.csv')
+
+# Display the first few rows and check the shape of the dataset
+print(df.head())
+print("Dataset shape:", df.shape)
+
+# Check for null values and data types
+print(df.info())
+
+# Feature Engineering: Split datetime into date and time components
+df['date'] = pd.to_datetime(df['datetime']).dt.date
+df['time'] = pd.to_datetime(df['datetime']).dt.hour
+
+# Extract day, month, year from date
+df['day'] = pd.to_datetime(df['date']).dt.day
+df['month'] = pd.to_datetime(df['date']).dt.month
+df['year'] = pd.to_datetime(df['date']).dt.year
+
+# Determine if a day is a weekend or weekday
+def weekend_or_weekday(date):
+    return 1 if date.weekday() < 5 else 0
+
+df['weekday'] = df['date'].apply(lambda x: weekend_or_weekday(pd.to_datetime(x)))
+
+# Determine if time is AM or PM
+df['am_or_pm'] = df['time'].apply(lambda x: 1 if x > 11 else 0)
+
+# Check for holidays in India using the holidays library
+def is_holiday(date):
+    india_holidays = holidays.country_holidays('IN')
+    return 1 if date in india_holidays else 0
+
+df['holiday'] = df['date'].apply(is_holiday)
+
+# Drop unnecessary columns
+df.drop(['datetime', 'date'], axis=1, inplace=True)
+
+# Exploratory Data Analysis (EDA)
+plt.figure(figsize=(15, 10))
+features = ['day', 'time', 'month']
+for i, col in enumerate(features):
+    plt.subplot(2, 2, i + 1)
+    df.groupby(col).mean()['count'].plot()
+plt.show()
+
+# Bar plots for categorical features vs count
+plt.figure(figsize=(20, 10))
+features = ['season', 'weather', 'holiday', 'am_or_pm', 'year', 'weekday']
+for i, col in enumerate(features):
+    plt.subplot(2, 3, i + 1)
+    df.groupby(col).mean()['count'].plot.bar()
+plt.show()
+
+# Check distributions of temp and windspeed features
+plt.figure(figsize=(15, 5))
+sb.distplot(df['temp'])
+sb.distplot(df['windspeed'])
+plt.show()
+
+# Check for outliers using boxplots
+plt.figure(figsize=(15, 5))
+sb.boxplot(data=df[['temp', 'windspeed']])
+plt.show()
+
+# Remove outliers from windspeed and humidity columns based on observations 
+df = df[(df['windspeed'] < 32) & (df['humidity'] > 0)]
+
+# Remove highly correlated features to prevent data leakage
+df.drop(['registered', 'time'], axis=1, inplace=True)
+
+# Separate features and target variable for modeling
+features = df.drop(['count'], axis=1)
+target = df['count'].values
+
+# Split the dataset into training and validation sets
+X_train, X_val, Y_train, Y_val = train_test_split(features, target, test_size=0.1, random_state=22)
+
+# Normalize the data using StandardScaler
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_val = scaler.transform(X_val)
+
+# Train various regression models and evaluate their performance using MAE
+models = {
+    "Linear Regression": LinearRegression(),
+    "XGBoost Regressor": XGBRegressor(),
+    "Lasso Regression": Lasso(),
+    "Random Forest Regressor": RandomForestRegressor(),
+    "Ridge Regression": Ridge()
+}
+
+for name, model in models.items():
+    model.fit(X_train, Y_train)
+    
+    train_preds = model.predict(X_train)
+    val_preds = model.predict(X_val)
+    
+    print(f'{name}:')
+    print('Training Error:', mae(Y_train, train_preds))
+    print('Validation Error:', mae(Y_val, val_preds))
+    print()
